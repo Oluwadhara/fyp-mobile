@@ -19,6 +19,19 @@ export default function ChatScreen() {
 
   const apiKey = Constants.expoConfig?.extra?.groqApiKey;
 
+  const detectEmotion = (text: string): string[] => {
+    const lowered = text.toLowerCase();
+    const emotions: string[] = [];
+
+    if (/\b(sad|down|depressed|unhappy|cry|tired|worthless)\b/.test(lowered)) emotions.push("sadness");
+    if (/\b(anxious|worried|nervous|scared|panic|overwhelmed)\b/.test(lowered)) emotions.push("anxiety");
+    if (/\b(lonely|alone|isolated|abandoned)\b/.test(lowered)) emotions.push("loneliness");
+    if (/\b(guilty|ashamed|blame|regret)\b/.test(lowered)) emotions.push("guilt");
+    if (/\b(angry|frustrated|mad|annoyed)\b/.test(lowered)) emotions.push("anger");
+
+    return emotions.length ? emotions : ["unknown"];
+  };
+
   const handleSend = async () => {
     if (!inputText.trim()) return;
 
@@ -40,8 +53,17 @@ export default function ChatScreen() {
         body: JSON.stringify({
           model: "llama3-70b-8192",
           messages: [
-            { role: "system", content: "You are a helpful AI assistant." },
-            { role: "user", content: inputText },
+            {
+              role: "system",
+              content:
+                `You are a compassionate and emotionally intelligent AI mental health assistant. Your primary goal is to listen actively, understand the user's mental and emotional state, and respond with empathy, support, and encouragement.\n\n` +
+                `You diagnose conditions or offer medical advice, but you help users process their emotions and recommend positive coping strategies or professional help when needed.\n\n` +
+                `When appropriate, gently acknowledge detected emotions like sadness, anxiety, or loneliness. Use a kind, calm tone, and end responses with a short message of hope.`,
+            },
+            {
+              role: "user",
+              content: `User says: "${inputText}"\n\nDetected Emotion(s): ${detectEmotion(inputText).join(", ")}`,
+            },
           ],
           temperature: 0.7,
         }),
@@ -54,7 +76,7 @@ export default function ChatScreen() {
         const tokens = botReply.split(" "); // word-by-word
         for (let i = 0; i < tokens.length; i++) {
           currentText += (i > 0 ? " " : "") + tokens[i]; // add space between words
-          await new Promise((resolve) => setTimeout(resolve, 275)); // 75ms per word
+          await new Promise((resolve) => setTimeout(resolve, 225)); // 75ms per word
           setMessages((prev) => {
             const updated = [...prev];
             updated[updated.length - 1] = { text: currentText, from: "bot" };
