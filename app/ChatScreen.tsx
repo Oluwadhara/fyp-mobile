@@ -27,6 +27,9 @@ export default function ChatScreen() {
     setInputText("");
     setLoading(true);
 
+    let currentText = "";
+    setMessages((prev) => [...prev, { text: currentText, from: "bot" }]);
+
     try {
       const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
         method: "POST",
@@ -35,7 +38,7 @@ export default function ChatScreen() {
           Authorization: `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
-          model: "llama3-8b-8192",
+          model: "llama3-70b-8192",
           messages: [
             { role: "system", content: "You are a helpful AI assistant." },
             { role: "user", content: inputText },
@@ -48,9 +51,21 @@ export default function ChatScreen() {
       const botReply = data.choices?.[0]?.message?.content?.trim();
 
       if (botReply) {
-        setMessages((prev) => [...prev, { text: botReply, from: "bot" }]);
+        const tokens = botReply.split(" "); // word-by-word
+        for (let i = 0; i < tokens.length; i++) {
+          currentText += (i > 0 ? " " : "") + tokens[i]; // add space between words
+          await new Promise((resolve) => setTimeout(resolve, 275)); // 75ms per word
+          setMessages((prev) => {
+            const updated = [...prev];
+            updated[updated.length - 1] = { text: currentText, from: "bot" };
+            return updated;
+          });
+        }
       } else {
-        setMessages((prev) => [...prev, { text: "Sorry, no response from LLaMA.", from: "bot" }]);
+        setMessages((prev) => [
+          ...prev,
+          { text: "Sorry, no response from LLaMA.", from: "bot" },
+        ]);
       }
     } catch (error) {
       console.error("Error talking to LLaMA:", error);
