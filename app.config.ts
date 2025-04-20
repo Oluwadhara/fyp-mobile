@@ -9,11 +9,12 @@ export default {
     sdkVersion: "52.0.0", // replace with your current Expo SDK
     android: {
       package: "com.dararocks.mentalhealthchatbot",
+      permissions: ["RECORD_AUDIO"],
     },
     extra: {
       groqApiKey: "process.env.GROQ_API_KEY",
       eas: {
-        projectId: "61120707-5eb5-4708-9de4-e301ea9e16b2"
+        projectId: "61120707-5eb5-4708-9de4-e301ea9e16b2",
       },
     },
     scheme: "my-ai-chatbot",
