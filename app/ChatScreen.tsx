@@ -51,6 +51,32 @@ export default function ChatScreen() {
     flatListRef.current?.scrollToEnd({ animated: true });
   }, [messages]);
 
+  const STORAGE_KEY = `@chat_messages_${userId}`;
+
+  const saveMessagesToStorage = async (msgs: MessageType[]) => {
+    try {
+      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(msgs));
+      console.log("💾 Messages saved to AsyncStorage");
+    } catch (e) {
+      console.error("❌ Failed to save messages:", e);
+    }
+  };
+
+  const loadMessagesFromStorage = async (): Promise<MessageType[]> => {
+    try {
+      const stored = await AsyncStorage.getItem(STORAGE_KEY);
+      if (stored) {
+        const parsed: MessageType[] = JSON.parse(stored);
+        console.log("📦 Loaded messages from AsyncStorage");
+        return parsed;
+      }
+    } catch (e) {
+      console.error("❌ Failed to load from AsyncStorage:", e);
+    }
+    return [];
+  };
+
+
   const detectEmotion = (text: string): string[] => {
     const l = text.toLowerCase();
     const e: string[] = [];
@@ -69,6 +95,14 @@ export default function ChatScreen() {
   useFocusEffect(
     useCallback(() => {
       (async () => {
+        const localMsgs = await loadMessagesFromStorage();
+        if (localMsgs.length > 0) {
+          setMessages(localMsgs);
+          setTimeout(() => {
+            flatListRef.current?.scrollToEnd({ animated: false });
+          }, 500);
+        }
+
         try {
           const q = query(
             collection(db, "chatMessages"),
@@ -89,9 +123,10 @@ export default function ChatScreen() {
               userId: data.userId,
             };
           });
-          setMessages(loaded);
 
-          // Wait a tiny bit to ensure FlatList is rendered
+          setMessages(loaded);
+          saveMessagesToStorage(loaded); // 🧠 Save updated list to local storage
+
           setTimeout(() => {
             flatListRef.current?.scrollToEnd({ animated: false });
           }, 1000);
@@ -219,7 +254,11 @@ export default function ChatScreen() {
         timestamp: getTimestamp(),
         userId,
       };
-      setMessages((prev) => [...prev, errMsg]);
+      setMessages((prev) => {
+        const updated = [...prev, userMsg]; // or other new message
+        saveMessagesToStorage(updated);     // 💾 Save to storage
+        return updated;
+      });
       saveMessageToFirebase(errMsg);
     }
 
@@ -240,7 +279,7 @@ export default function ChatScreen() {
     return (
       <TouchableOpacity
         onLongPress={() =>
-          Alert.alert("Options", "", [
+          Alert.alert("Copy text?", "", [
             {
               text: "Copy",
               onPress: () => {
@@ -251,12 +290,16 @@ export default function ChatScreen() {
                 });
               },
             },
-            {
-              text: "Delete",
-              onPress: () =>
-                setMessages((prev) => prev.filter((_, i) => i !== index)),
-              style: "destructive",
-            },
+            // {
+            //   text: "Delete",
+            //   onPress: () =>
+            //     setMessages((prev) => {
+            //       const filtered = prev.filter((_, i) => i !== index);
+            //       saveMessagesToStorage(filtered); // update storage
+            //       return filtered;
+            //     }),
+            //   style: "destructive",
+            // },
             { text: "Cancel", style: "cancel" },
           ])
         }
