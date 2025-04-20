@@ -319,6 +319,7 @@ export default function ChatScreen() {
         />
         <Button title="Send" onPress={handleSend} disabled={loading} />
       </View>
+      <Toast />
     </KeyboardAvoidingView>
   );
 }
