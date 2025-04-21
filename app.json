@@ -32,6 +32,17 @@
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
         }
+      ],
+      "react-native-firebase/app",
+      [
+        "react-native-firebase/firestore",
+        {
+          "ios": {
+            "config": {
+              "PLIST_KEY": "value"
+            }
+          }
+        }
       ]
     ],
     "experiments": {
