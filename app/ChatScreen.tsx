@@ -44,7 +44,7 @@ export default function ChatScreen() {
   const [error, setError] = useState("");
   const flatListRef = useRef<FlatList>(null);
 
-  const apiKey = "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";
+  const apiKey = "grok-api-key";
   const userId = "defaultUser";  // replace with real user once auth is in place
 
   useEffect(() => {
