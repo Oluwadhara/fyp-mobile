@@ -28,6 +28,10 @@ import { db } from "../firebaseConfig";
 import { useFocusEffect } from "@react-navigation/native";
 import { useEffect, useCallback } from "react";
 import Toast from 'react-native-toast-message';
+import { Audio } from "expo-av";
+import * as FileSystem from "expo-file-system";
+import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import axios from "axios";
 
 type MessageType = {
   text: string;
@@ -44,8 +48,11 @@ export default function ChatScreen() {
   const [error, setError] = useState("");
   const flatListRef = useRef<FlatList>(null);
 
-  const apiKey = "grok-api-key";
+  const apiKey = "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";
   const userId = "defaultUser";  // replace with real user once auth is in place
+
+  const [recording, setRecording] = useState<Audio.Recording | null>(null);
+  const [recordingStatus, setRecordingStatus] = useState<'idle' | 'recording' | 'saving'>('idle');
 
   useEffect(() => {
     flatListRef.current?.scrollToEnd({ animated: true });
@@ -100,7 +107,7 @@ export default function ChatScreen() {
           setMessages(localMsgs);
           setTimeout(() => {
             flatListRef.current?.scrollToEnd({ animated: false });
-          }, 500);
+          }, 1000);
         }
 
         try {
@@ -154,62 +161,156 @@ export default function ChatScreen() {
     }
   };
 
-  const handleSend = async () => {
-    if (!inputText.trim()) return;
+  const startRecording = async () => {
+    try {
+      await Audio.requestPermissionsAsync();
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+      });
+
+      const { recording } = await Audio.Recording.createAsync(
+        Audio.RecordingOptionsPresets.HIGH_QUALITY
+      );
+      setRecording(recording);
+      setRecordingStatus('recording');
+      console.log("Recording started");
+    } catch (err) {
+      console.error("Failed to start recording:", err);
+      Toast.show({ type: 'error', text1: 'Recording failed to start' });
+    }
+  };
+
+  const stopRecording = async () => {
+    if (!recording) return;
+
+    setRecordingStatus("saving");
+    try {
+      await recording.stopAndUnloadAsync();
+      const uri = recording.getURI();
+      setRecording(null);
+      console.log("Recording stopped");
+      if (!uri) return;
+
+      const fileName = uri.split("/").pop()!;
+      const blob = await (await fetch(uri)).blob();
+
+      const storageRef = ref(getStorage(), `audio/${fileName}`);
+      await uploadBytes(storageRef, blob);
+      const downloadURL = await getDownloadURL(storageRef);
+      console.log(downloadURL);
+
+      transcribeAudio(downloadURL);
+    } catch (err) {
+      console.error("Error stopping or uploading recording:", err);
+      Toast.show({ type: 'error', text1: 'Error saving recording' });
+    }
+    setRecordingStatus("idle");
+  };
+
+  const transcribeAudio = async (audioUrl: string) => {
+    console.log("Transcribing Audio");
+
+    try {
+      const res = await axios.post(
+        "https://api.assemblyai.com/v2/transcript",
+        {
+          audio_url: audioUrl,
+          sentiment_analysis: true,
+        },
+        {
+          headers: {
+            authorization: "1508c41adf824af680f5e97397907cd4", // 🔐 Use env vars in prod
+            "content-type": "application/json",
+          },
+        }
+      );
+
+      const transcriptId = res.data.id;
+
+      const poll = async () => {
+        const statusRes = await axios.get(
+          `https://api.assemblyai.com/v2/transcript/${transcriptId}`,
+          { headers: { authorization: "1508c41adf824af680f5e97397907cd4" } }
+        );
+
+        if (statusRes.data.status === "completed") {
+          const text = statusRes.data.text;
+          const emotionResult = detectEmotion(text);
+
+          console.log("Transcription result: ");
+          console.log(text);
+          console.log(emotionResult);
+
+          handleSend(text);
+
+        } else if (statusRes.data.status === "failed") {
+          Toast.show({ type: 'error', text1: 'Transcription failed' });
+        } else {
+          setTimeout(poll, 2000);
+        }
+      };
+
+      setTimeout(poll, 2000);
+    } catch (e) {
+      console.error("Error transcribing:", e);
+      Toast.show({ type: 'error', text1: 'Transcription request failed' });
+    }
+  };
+
+  const handleSend = async (text?: string) => {
+    const finalText = text?.trim() ?? inputText.trim();
+    if (!finalText) return;
+
     setError("");
 
-    // 1) User message
     const userMsg: MessageType = {
-      text: inputText,
+      text: finalText,
       from: "user",
       timestamp: getTimestamp(),
       userId,
     };
+
     setMessages((prev) => [...prev, userMsg]);
     saveMessageToFirebase(userMsg);
-
     setInputText("");
     setLoading(true);
 
-    // 2) Typing placeholder
     const typingMsg: MessageType = {
       text: "Typing…",
       from: "bot",
       timestamp: getTimestamp(),
       userId,
     };
+
     setMessages((prev) => [...prev, typingMsg]);
 
-    // 3) Fetch from API
     let botReply = "";
     try {
-      const res = await fetch(
-        "https://api.groq.com/openai/v1/chat/completions",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${apiKey}`,
-          },
-          body: JSON.stringify({
-            model: "llama3-70b-8192",
-            messages: [
-              {
-                role: "system",
-                content:
-                  "You are a compassionate AI mental health assistant…",
-              },
-              {
-                role: "user",
-                content: `User says: "${inputText}"\nDetected Emotion(s): ${detectEmotion(
-                  inputText
-                ).join(", ")}`,
-              },
-            ],
-            temperature: 0.7,
-          }),
-        }
-      );
+      const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: "llama3-70b-8192",
+          messages: [
+            {
+              role: "system",
+              content: "You are a compassionate AI mental health assistant…",
+            },
+            {
+              role: "user",
+              content: `User says: "${finalText}"\nDetected Emotion(s): ${detectEmotion(
+                finalText
+              ).join(", ")}`,
+            },
+          ],
+          temperature: 0.7,
+        }),
+      });
+
       const data = await res.json();
       botReply = data.choices?.[0]?.message?.content?.trim() || "";
     } catch (e) {
@@ -217,10 +318,8 @@ export default function ChatScreen() {
       setError("Failed to get response. Try again.");
     }
 
-    // 4) Remove typing
-    setMessages((prev) => prev.slice(0, -1));
+    setMessages((prev) => prev.slice(0, -1)); // Remove typing
 
-    // 5) Stream bot reply
     if (botReply) {
       const tokens = botReply.split(" ");
       let acc = "";
@@ -231,6 +330,7 @@ export default function ChatScreen() {
         userId,
       };
       setMessages((prev) => [...prev, botMsg]);
+
       for (let i = 0; i < tokens.length; i++) {
         acc += (i > 0 ? " " : "") + tokens[i];
         setMessages((prev) => {
@@ -240,7 +340,7 @@ export default function ChatScreen() {
         });
         await new Promise((r) => setTimeout(r, 75));
       }
-      // persist final bot message
+
       saveMessageToFirebase({
         text: acc,
         from: "bot",
@@ -255,8 +355,8 @@ export default function ChatScreen() {
         userId,
       };
       setMessages((prev) => {
-        const updated = [...prev, userMsg]; // or other new message
-        saveMessagesToStorage(updated);     // 💾 Save to storage
+        const updated = [...prev, userMsg];
+        saveMessagesToStorage(updated);
         return updated;
       });
       saveMessageToFirebase(errMsg);
@@ -353,6 +453,22 @@ export default function ChatScreen() {
       ) : null}
 
       <View style={styles.inputRow}>
+        <View style={{ flexDirection: 'row', justifyContent: 'center', marginVertical: 8 }}>
+          <TouchableOpacity
+            style={{
+              backgroundColor: recordingStatus === "recording" ? "#FF5555" : "#4CAF50",
+              padding: 10,
+              borderRadius: 8,
+              marginVertical: 10,
+            }}
+            onPress={() => recordingStatus === "recording" ? stopRecording() : startRecording()}
+          >
+            <Text style={{ color: "#FFF", textAlign: "center" }}>
+              🎙 {recordingStatus === "recording" ? "Stop Recording" : "Record"}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
         <TextInput
           style={styles.input}
           value={inputText}
@@ -360,7 +476,7 @@ export default function ChatScreen() {
           placeholder="Type a message…"
           editable={!loading}
         />
-        <Button title="Send" onPress={handleSend} disabled={loading} />
+        <Button title="Send" onPress={() => handleSend(inputText)} disabled={loading} />
       </View>
       <Toast />
     </KeyboardAvoidingView>
@@ -447,5 +563,11 @@ const styles = StyleSheet.create({
   errText: {
     color: "#a00",
     fontSize: 14,
+  },
+  voiceButton: {
+    backgroundColor: "#6c5ce7",
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 20,
   },
 });

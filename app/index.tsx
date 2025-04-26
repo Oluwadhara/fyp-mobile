@@ -7,6 +7,7 @@ export default function Home() {
     <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
       <Text>Welcome to MindEase 🧘</Text>
       <Link href="/ChatScreen">Go to Chat</Link>
+      <Link href="/RecordingScreen">Go to Recording Screen</Link>
       <Toast />
     </View>
   );
